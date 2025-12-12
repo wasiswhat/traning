@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telc Master (Solid Drag v13)</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --bg: #f4f7f6;
+            --panel-bg: #ffffff;
+            --border: #dcdcdc;
+            --correct: #d4edda;
+            --correct-border: #27ae60;
+            --correct-text: #155724;
+            --wrong: #f8d7da;
+            --wrong-border: #c0392b;
+            --wrong-text: #721c24;
+            --highlight: #e8f4fc;
+            --marker-bg: #fff3cd;
+            --marker-text: #856404;
+            
+            --base-size: 16px; 
+            --ui-size: 14px;
+            --handle-height: 44px; /* 固定把手高度 */
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            height: 100dvh; /* 适配移动端动态高度 */
+            background-color: var(--bg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+            overscroll-behavior: none;
+            position: fixed; 
+            width: 100%;
+        }
+
+        /* --- Header --- */
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 0 15px;
+            height: 54px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            flex-shrink: 0;
+            z-index: 1000;
+        }
+
+        h1 { font-size: 16px; margin: 0; font-weight: 600; display: flex; align-items: center; overflow: hidden; white-space: nowrap; }
+        .controls { display: flex; gap: 8px; align-items: center; }
+
+        .btn {
+            border: none; color: white; border-radius: 6px; font-size: 15px; cursor: pointer; font-weight: bold;
+            display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 34px;
+            transition: background 0.2s; position: relative; background: rgba(255,255,255,0.1);
+        }
+        .btn:active { background: rgba(255,255,255,0.3); }
+        .file-upload { background-color: #e67e22; width: auto; padding: 0 10px; }
+        input[type=file] { position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .btn-shuffle { background-color: #f1c40f; color: #2c3e50; }
+        .btn-check { background-color: #27ae60; }
+        .btn-font { font-family: serif; font-weight: bold; letter-spacing: -1px; }
+
+        /* --- Layout --- */
+        .main-container { display: flex; flex: 1; overflow: hidden; width: 100%; position: relative; }
+
+        /* Left Panel (Answer Drawer) */
+        .left-panel {
+            width: 400px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+            z-index: 50;
+            transition: width 0.1s;
+        }
+        .left-panel.hidden { display: none !important; }
+
+        /* 拖拽把手 (Mobile Only) - 核心修复 */
+        .panel-handle {
+            display: none; 
+            height: var(--handle-height); /* 固定高度 */
+            flex: 0 0 var(--handle-height); /* 禁止被 Flex 压缩 */
+            background: #f8f9fa;
+            border-top: 1px solid #ccc; 
+            border-bottom: 1px solid #eee;
+            align-items: center; 
+            justify-content: center; 
+            cursor: grab;
+            touch-action: none; 
+            z-index: 100; /* 保证在最上层 */
+        }
+        .handle-bar { width: 60px; height: 6px; background: #bbb; border-radius: 4px; }
+        
+        .panel-header { 
+            padding: 10px; background: #f1f3f5; font-weight: bold; color: var(--primary); 
+            border-bottom: 1px solid var(--border); font-size: 14px; text-align: center; 
+            flex-shrink: 0; /* 防止标题被压缩 */
+        }
+        
+        .scroll-area { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding: 15px; 
+            -webkit-overflow-scrolling: touch; 
+            padding-bottom: 100px; 
+        }
+
+        .resizer { width: 10px; background: #e9ecef; cursor: col-resize; flex-shrink: 0; z-index: 40; border-left: 1px solid #ddd; }
+        .resizer.hidden { display: none; }
+
+        /* Right Panel (Content) */
+        .right-panel {
+            flex: 1; background: var(--panel-bg); display: flex; flex-direction: column;
+            overflow: hidden; min-width: 0; position: relative;
+        }
+
+        .instruction {
+            background: var(--highlight); border-left: 5px solid var(--accent);
+            padding: 12px 15px; margin-bottom: 20px; color: #444; font-size: var(--ui-size); font-style: italic;
+        }
+
+        .text-body {
+            font-size: var(--base-size); line-height: 1.8; color: #222; white-space: pre-wrap;
+            max-width: 900px; margin: 0 auto; user-select: text; 
+            padding-bottom: 200px; 
+        }
+
+        /* --- Components (Same as v9/v10) --- */
+        .sp-block { background: #fff; border: 1px solid #eee; padding: 10px; margin-bottom: 12px; border-radius: 8px; border-left: 4px solid var(--accent); }
+        .sp-header { font-weight: bold; margin-bottom: 8px; color: var(--primary); font-size: var(--ui-size); }
+        .sp-options-grid { display: flex; flex-direction: column; gap: 6px; }
+        .sp-option-btn { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; background: #fdfdfd; transition: all 0.1s; font-size: var(--ui-size); }
+        .sp-option-btn:active { background: #e0e0e0; }
+        .sp-option-btn.selected { background: var(--primary); color: white; border-color: var(--primary); font-weight: bold; }
+        .sp-option-btn.correct { background: var(--correct) !important; border-color: var(--correct-border) !important; color: var(--correct-text) !important; }
+        .sp-option-btn.wrong { background: var(--wrong) !important; border-color: var(--wrong-border) !important; color: var(--wrong-text) !important; opacity: 0.7; }
+
+        .option-card { background: #fff; border: 1px solid #e0e0e0; padding: 10px; margin-bottom: 8px; border-radius: 8px; font-size: var(--ui-size); line-height: 1.4; display: flex; gap: 10px; cursor: pointer; }
+        .option-card.is-used { opacity: 0.5; text-decoration: line-through; background: #f5f5f5; }
+        .opt-badge { background: var(--primary); color: white; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0; }
+
+        .lv3-card, .mc-question { background: #fff; border: 1px solid #eee; padding: 12px; margin-bottom: 12px; border-radius: 8px; font-size: var(--ui-size); }
+        .lv3-header, .mc-title { display: flex; gap: 8px; margin-bottom: 8px; line-height: 1.3; font-weight: bold; }
+        .tfn-group { display: flex; gap: 5px; }
+        .tfn-btn { flex: 1; padding: 10px; text-align: center; border: 1px solid #ccc; font-size: var(--ui-size); border-radius: 4px; background: #f8f9fa; cursor: pointer; color: #555; }
+        .tfn-btn.active { background: var(--primary); color: white; border-color: var(--primary); font-weight: bold; }
+        .tfn-btn.correct { background: var(--correct) !important; border-color: var(--correct-border) !important; color: var(--correct-text) !important; }
+        .tfn-btn.wrong { background: var(--wrong) !important; border-color: var(--wrong-border) !important; color: var(--wrong-text) !important; opacity: 0.6; }
+
+        .mc-option { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; background: #fff; margin-bottom: 8px; cursor: pointer; }
+        .mc-option.selected { background: var(--highlight); border-color: var(--accent); font-weight: 600; border-width: 2px; }
+        .mc-option.correct { background-color: var(--correct) !important; border: 2px solid var(--correct-border) !important; color: var(--correct-text) !important; }
+        .mc-option.wrong { background-color: var(--wrong) !important; border: 2px solid var(--wrong-border) !important; color: var(--wrong-text) !important; }
+
+        select.gap-select { appearance: none; -webkit-appearance: none; border: 1px solid #aaa; border-radius: 4px; padding: 0 10px; margin: 0; font-weight: 600; color: #333; background-color: #fff; min-width: 50px; height: 36px; font-size: var(--ui-size); text-align: center; width: 100%; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23333%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.7-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 8px top 50%; background-size: 8px auto; }
+        select.gap-select.correct { border: 2px solid var(--correct-border) !important; background-color: var(--correct) !important; color: var(--correct-text) !important; }
+        select.gap-select.wrong { border: 2px solid var(--wrong-border) !important; background-color: var(--wrong) !important; color: var(--wrong-text) !important; }
+
+        .text-marker { background-color: var(--marker-bg); color: var(--marker-text); padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #ffeeba; font-size: 0.9em; vertical-align: baseline; margin: 0 2px; }
+        .match-row { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; font-size: var(--ui-size); }
+        .gap-reveal { display: inline-block; min-width: 40px; padding: 2px 8px; margin: 0 4px; border-bottom: 2px solid #999; background-color: #e0e0e0; color: #555; font-weight: bold; cursor: pointer; text-align: center; border-radius: 4px; user-select: none; transition: all 0.2s; font-size: var(--base-size); }
+        .gap-reveal.active { background-color: #fff3cd; border-bottom: 2px solid #ffc107; color: #000; font-style: italic; padding: 2px 10px; }
+
+        #feedback-bar { background: #333; color: white; padding: 15px; text-align: center; font-weight: bold; display: none; font-size: 16px; position: fixed; bottom: 0; left: 0; width: 100%; z-index: 2000; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); }
+        #empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 80%; color: #aaa; text-align: center; padding: 20px; }
+        .drop-icon { font-size: 60px; margin-bottom: 15px; opacity: 0.5; }
+
+        /* Mobile Styles */
+        @media (max-width: 768px) {
+            h1 span { display: none; }
+            .main-container { display: block; height: calc(100vh - 54px); }
+            .right-panel { height: 100%; width: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+            
+            /* 底部抽屉 */
+            .left-panel {
+                position: fixed; 
+                bottom: 0; 
+                left: 0; 
+                width: 100% !important; 
+                /* 核心修复：初始高度 */
+                height: 50vh; 
+                max-height: 90vh;
+                min-height: 44px; /* 保证至少露出把手 */
+                background: #fff; 
+                border-right: none; 
+                border-radius: 16px 16px 0 0;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.15); 
+                z-index: 900;
+                /* 关键：无 transition 以实现自由跟手 */
+                transition: none; 
+            }
+            
+            .resizer { display: none; }
+            .panel-handle { display: flex; }
+            .panel-header { display: none; }
+            .text-body { padding: 15px 15px 120px 15px; }
+            .btn { width: 40px; height: 34px; font-size: 18px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🇩🇪 Telc Trainer <span id="exam-title"></span></h1>
+        <div class="controls">
+            <button class="btn btn-font" onclick="changeFontSize(-1)">A-</button>
+            <button class="btn btn-font" onclick="changeFontSize(1)">A+</button>
+            <div class="file-upload btn">📂<input type="file" id="fileInput" accept=".json"></div>
+            <button class="btn btn-shuffle" onclick="renderContent()" id="btn-mix" style="display:none">🔀</button>
+            <button class="btn btn-check" onclick="checkAnswers()" id="btn-check" style="display:none">✅</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div class="left-panel" id="leftPanel">
+            <div class="panel-handle" id="dragHandle"><div class="handle-bar"></div></div>
+            
+            <div class="panel-header" id="panelHeader">Optionen</div>
+            <div class="scroll-area" id="options-pool"></div>
+        </div>
+        
+        <div class="resizer" id="resizer"></div>
+
+        <div class="right-panel">
+            <div class="scroll-area">
+                <div id="empty-state">
+                    <div class="drop-icon">📱</div>
+                    <h3>Bereit</h3>
+                    <p>Laden Sie eine JSON-Datei.</p>
+                </div>
+                <div id="quiz-content" style="display:none;">
+                    <div id="instruction" class="instruction"></div>
+                    <div id="question-area" class="text-body"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="feedback-bar"></div>
+
+    <script>
+        let currentData = null;
+        let shuffledPool = [], shuffledMC = [], shuffledSP = {}, shuffledLV2 = [];
+        let currentBaseSize = 16;
+
+        function changeFontSize(delta) {
+            currentBaseSize += delta;
+            if(currentBaseSize < 12) currentBaseSize = 12;
+            if(currentBaseSize > 24) currentBaseSize = 24;
+            document.documentElement.style.setProperty('--base-size', currentBaseSize + 'px');
+            document.documentElement.style.setProperty('--ui-size', (currentBaseSize - 2) + 'px');
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const json = JSON.parse(e.target.result);
+                    loadExam(json);
+                } catch (err) { alert("JSON Error: " + err); }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+
+        function loadExam(data) {
+            currentData = data;
+            const type = data.type;
+            const useSplit = ['gapfill_pool', 'matching', 'gapfill_dropdown', 'lv3_mixed', 'matching_text'].includes(type);
+            
+            const leftPanel = document.getElementById('leftPanel');
+            const resizer = document.getElementById('resizer');
+            const header = document.getElementById('panelHeader');
+            
+            if (type === 'gapfill_dropdown') header.textContent = 'Antwortbogen';
+            else if (type === 'lv3_mixed') header.textContent = 'Aufgaben';
+            else header.textContent = 'Optionen';
+
+            if (useSplit) {
+                leftPanel.classList.remove('hidden');
+                if (window.innerWidth > 768) resizer.classList.remove('hidden');
+                // Mobile: Init half open
+                if (window.innerWidth <= 768) {
+                    leftPanel.style.height = '50vh';
+                }
+            } else {
+                leftPanel.classList.add('hidden');
+                resizer.classList.add('hidden');
+            }
+
+            const btnMix = document.getElementById('btn-mix');
+            const btnCheck = document.getElementById('btn-check');
+            if (type === 'presentation_gap') {
+                btnMix.style.display = 'none'; btnCheck.style.display = 'none';
+            } else {
+                btnMix.style.display = 'flex'; btnCheck.style.display = 'flex';
+            }
+
+            document.getElementById('empty-state').style.display = 'none';
+            document.getElementById('quiz-content').style.display = 'block';
+            document.getElementById('exam-title').textContent = ` - ${data.title || ''}`;
+            document.getElementById('instruction').textContent = data.instruction || '';
+            document.getElementById('feedback-bar').style.display = 'none';
+
+            renderContent();
+        }
+
+        function renderContent() {
+            const rightArea = document.getElementById('question-area');
+            const leftArea = document.getElementById('options-pool');
+            rightArea.innerHTML = '';
+            leftArea.innerHTML = '';
+            document.getElementById('feedback-bar').style.display = 'none';
+
+            const type = currentData.type;
+
+            // ... [Identical Render Logic preserved from v12/v10] ...
+            // gapfill_pool/matching
+            if (type === 'gapfill_pool' || type === 'matching') {
+                let temp = currentData.options.map((t, i) => ({ originalIndex: i, text: t }));
+                shuffleArray(temp);
+                shuffledPool = temp.map((o, i) => ({ ...o, label: String.fromCharCode(97 + i) }));
+                shuffledPool.forEach(opt => {
+                    let div = document.createElement('div'); div.className = 'option-card';
+                    div.onclick = function() { this.classList.toggle('is-used'); };
+                    div.innerHTML = `<div class="opt-badge">${opt.label}</div><div>${opt.text}</div>`;
+                    leftArea.appendChild(div);
+                });
+                let selectHTML = `<option value="">--</option>`;
+                shuffledPool.forEach(opt => { selectHTML += `<option value="${opt.originalIndex}">${opt.label}</option>`; });
+                if (type === 'matching') {
+                    currentData.items.forEach(item => {
+                        let row = document.createElement('div'); row.className = 'match-row';
+                        row.innerHTML = `<span style="font-weight:bold; color:#3498db; margin-right:10px;">${item.label}:</span> <select class="gap-select" data-id="${item.id}" style="width:auto; display:inline-block;">${selectHTML}</select>`;
+                        rightArea.appendChild(row);
+                    });
+                } else {
+                    let text = formatText(currentData.text);
+                    text = text.replace(/\{(\d+)\}/g, (m, id) => `<select class="gap-select" data-id="${id}" style="width:60px; display:inline-block;">${selectHTML}</select>`);
+                    rightArea.innerHTML = text;
+                }
+            } 
+            // SP
+            else if (type === 'gapfill_dropdown') {
+                let text = formatText(currentData.text);
+                text = text.replace(/\{(\d+)\}/g, (match, id) => `<span class="text-marker">(${id})</span>`);
+                rightArea.innerHTML = text;
+                shuffledSP = {};
+                currentData.gaps.forEach(gap => {
+                    let opts = gap.options.map((t, i) => ({ text: t, originalIdx: i }));
+                    shuffleArray(opts);
+                    shuffledSP[gap.id] = opts;
+                    let div = document.createElement('div'); div.className = 'sp-block';
+                    let html = `<div class="sp-header">${gap.id})</div><div class="sp-options-grid" data-id="${gap.id}">`;
+                    opts.forEach((o, oIdx) => { html += `<div class="sp-option-btn" onclick="selectSP(this, ${o.originalIdx})"><div style="font-weight:bold;color:#7f8c8d;width:15px;">${String.fromCharCode(97+oIdx)}</div><div>${o.text}</div></div>`; });
+                    html += `</div>`; div.innerHTML = html; leftArea.appendChild(div);
+                });
+            }
+            // LV3
+            else if (type === 'lv3_mixed') {
+                rightArea.innerHTML = formatText(currentData.text);
+                currentData.questions.forEach(q => {
+                    if (q.type === 'tfn') {
+                        let div = document.createElement('div'); div.className = 'lv3-card';
+                        div.innerHTML = `<div class="lv3-header"><span class="lv3-id">${q.id})</span><span>${q.text}</span></div><div class="tfn-group" data-id="${q.id}"><div class="tfn-btn" onclick="selectTFN(this, 'r')">r</div><div class="tfn-btn" onclick="selectTFN(this, 'f')">f</div><div class="tfn-btn" onclick="selectTFN(this, '-')">-</div></div>`;
+                        leftArea.appendChild(div);
+                    } else if (q.type === 'mc') {
+                        let div = document.createElement('div'); div.className = 'lv3-card mc-question'; div.setAttribute('data-id', q.id);
+                        let html = `<div class="mc-title"><span style="color:#3498db">${q.id})</span> <span>${q.text}</span></div><div class="mc-options">`;
+                        q.options.forEach((opt, oIdx) => { html += `<div class="mc-option" onclick="selectMC(this)"><div style="width:20px;font-weight:bold;">${String.fromCharCode(65+oIdx)}</div><div style="pointer-events:none;" data-val="${oIdx}">${opt}</div></div>`; });
+                        html += `</div>`; div.innerHTML = html; leftArea.appendChild(div);
+                    }
+                });
+            }
+            // HV2
+            else if (type === 'multiple_choice') {
+                shuffledMC = [];
+                currentData.questions.forEach((q, qIdx) => {
+                    let qObj = { id: q.id, correctIndex: q.answer, options: [] };
+                    let tempOpts = q.options.map((t, i) => ({ text: t, originalIdx: i }));
+                    shuffleArray(tempOpts); qObj.options = tempOpts; shuffledMC.push(qObj);
+                    let card = document.createElement('div'); card.className = 'mc-question';
+                    let html = `<div class="mc-title"><span style="color:#3498db">${q.id})</span><span>${q.text}</span></div><div class="mc-options">`;
+                    tempOpts.forEach((opt, oIdx) => { html += `<div class="mc-option" onclick="selectMC(this)"><div style="width:20px;font-weight:bold;">${String.fromCharCode(65+oIdx)}</div><div style="pointer-events:none;" data-val="${opt.originalIdx}">${opt.text}</div></div>`; });
+                    html += `</div>`; card.innerHTML = html; rightArea.appendChild(card);
+                });
+            }
+            // LV2
+            else if (type === 'matching_text') {
+                rightArea.innerHTML = formatText(currentData.text);
+                let selectHTML = `<option value="">--</option>`;
+                currentData.options.forEach((t, i) => { selectHTML += `<option value="${i}">Abschnitt ${String.fromCharCode(65+i)}</option>`; });
+                shuffledLV2 = [...currentData.questions]; shuffleArray(shuffledLV2);
+                shuffledLV2.forEach(q => {
+                    let div = document.createElement('div'); div.className = 'lv3-card';
+                    div.innerHTML = `<div style="display:flex;align-items:center;"><div style="font-weight:bold;color:#2c3e50;margin-right:10px;">${q.id})</div><div style="flex:1;margin-right:5px;">${q.text}</div><div><select class="gap-select" data-id="${q.id}" style="width:60px;">${selectHTML}</select></div></div>`;
+                    leftArea.appendChild(div);
+                });
+            }
+            // HV3
+            else if (type === 'presentation_gap') {
+                let text = formatText(currentData.text);
+                text = text.replace(/\{(\d+)\}/g, (match, id) => `<span class="gap-reveal" data-id="${id}" onclick="toggleGap(this)">(${id})</span>`);
+                rightArea.innerHTML = text;
+            }
+        }
+
+        function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
+        function formatText(raw) { return raw ? raw.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>') : ""; }
+        window.toggleGap = function(el) { const id = el.getAttribute('data-id'); const answer = currentData.solution[id]; if (el.classList.contains('active')) { el.classList.remove('active'); el.textContent = `(${id})`; } else { el.classList.add('active'); el.textContent = answer; } };
+        window.selectMC = function(el) { el.parentElement.querySelectorAll('.mc-option').forEach(o => o.classList.remove('selected')); el.classList.add('selected'); };
+        window.selectTFN = function(el, val) { let p = el.parentElement; p.querySelectorAll('.tfn-btn').forEach(b => b.classList.remove('active')); el.classList.add('active'); p.setAttribute('data-val', val); };
+        window.selectSP = function(el, val) { let p = el.parentElement; p.querySelectorAll('.sp-option-btn').forEach(b => b.classList.remove('selected')); el.classList.add('selected'); p.setAttribute('data-val', val); };
+
+        function checkAnswers() {
+            let correct = 0, total = 0;
+            const type = currentData.type;
+            if (type === 'presentation_gap') return;
+
+            // (Check Logic kept standard)
+            if (type === 'gapfill_dropdown') {
+                const spGrids = document.querySelectorAll('.sp-options-grid');
+                spGrids.forEach(grid => { total++; const id = grid.getAttribute('data-id'); const userVal = grid.getAttribute('data-val'); const gapData = currentData.gaps.find(g => g.id == id); const correctVal = gapData.answer; grid.querySelectorAll('.sp-option-btn').forEach(btn => btn.classList.remove('correct', 'wrong')); if (userVal !== null) { const selBtn = grid.querySelector('.selected'); if (parseInt(userVal) === correctVal) { selBtn.classList.add('correct'); correct++; } else { selBtn.classList.add('wrong'); Array.from(grid.children).forEach(btn => { if(btn.getAttribute('onclick').includes(`, ${correctVal})`)) btn.classList.add('correct'); }); } } else { Array.from(grid.children).forEach(btn => { if(btn.getAttribute('onclick').includes(`, ${correctVal})`)) btn.classList.add('wrong'); }); } });
+            } else if (type === 'lv3_mixed') {
+                const tfnRows = document.querySelectorAll('.tfn-group'); tfnRows.forEach(row => { total++; const qId = row.getAttribute('data-id'); const userVal = row.getAttribute('data-val'); const qData = currentData.questions.find(q => q.id == qId); row.querySelectorAll('.tfn-btn').forEach(b => b.classList.remove('correct', 'wrong')); if (userVal) { const btn = Array.from(row.children).find(b => b.classList.contains('active')); if (userVal === qData.answer) { btn.classList.add('correct'); correct++; } else { btn.classList.add('wrong'); if(qData.answer=='r') row.children[0].classList.add('correct'); if(qData.answer=='f') row.children[1].classList.add('correct'); if(qData.answer=='-') row.children[2].classList.add('correct'); } } else { if(qData.answer=='r') row.children[0].classList.add('wrong'); if(qData.answer=='f') row.children[1].classList.add('wrong'); if(qData.answer=='-') row.children[2].classList.add('wrong'); } });
+                const mcCards = document.querySelectorAll('.mc-question'); mcCards.forEach(card => { total++; const qId = card.getAttribute('data-id'); const qData = currentData.questions.find(q => q.id == qId); const sel = card.querySelector('.selected div[data-val]'); const opts = card.querySelectorAll('.mc-option'); opts.forEach(o => o.classList.remove('correct', 'wrong')); if(sel) { if(parseInt(sel.getAttribute('data-val')) === qData.answer) { sel.parentElement.classList.add('correct'); correct++; } else { sel.parentElement.classList.add('wrong'); opts[qData.answer].classList.add('correct'); } } else { opts[qData.answer].classList.add('wrong'); } });
+            } else if (type === 'multiple_choice') {
+                const cards = document.querySelectorAll('.mc-question'); total = cards.length; cards.forEach((card, idx) => { const data = shuffledMC[idx]; const sel = card.querySelector('.selected div[data-val]'); const opts = card.querySelectorAll('.mc-option'); opts.forEach(o => o.classList.remove('correct', 'wrong')); if (sel) { if (parseInt(sel.getAttribute('data-val')) === data.correctIndex) { sel.parentElement.classList.add('correct'); correct++; } else { sel.parentElement.classList.add('wrong'); Array.from(opts).find(o => parseInt(o.querySelector('div[data-val]').getAttribute('data-val')) === data.correctIndex)?.classList.add('correct'); } } else { Array.from(opts).find(o => parseInt(o.querySelector('div[data-val]').getAttribute('data-val')) === data.correctIndex)?.classList.add('wrong'); } });
+            } else {
+                const selects = document.querySelectorAll('select.gap-select'); total = selects.length; selects.forEach(sel => { const id = sel.getAttribute('data-id'); const val = parseInt(sel.value); let cVal = -1; if (type === 'matching_text' || type === 'gapfill_pool' || type === 'matching') { cVal = currentData.solution[id]; } sel.classList.remove('correct', 'wrong'); if (!isNaN(val) && val === cVal) { sel.classList.add('correct'); correct++; } else { sel.classList.add('wrong'); } });
+            }
+            const fb = document.getElementById('feedback-bar'); fb.style.display = 'block'; fb.style.backgroundColor = (correct === total) ? '#27ae60' : '#c0392b'; fb.textContent = (correct === total) ? `🎉 Perfekt! (${correct}/${total})` : `Ergebnis: ${correct} / ${total} richtig.`;
+        }
+
+        // ==========================================
+        // 🚀 iOS Native Drag Logic (Free Drag Fix)
+        // ==========================================
+        const dragHandle = document.getElementById('dragHandle');
+        const leftPanel = document.getElementById('leftPanel');
+        
+        let startY = 0;
+        let startHeight = 0;
+        let isDragging = false;
+
+        if (dragHandle) {
+            // Touch Start: Record State
+            dragHandle.addEventListener('touchstart', (e) => {
+                isDragging = true;
+                startY = e.touches[0].clientY;
+                startHeight = leftPanel.getBoundingClientRect().height;
+                // No transition during drag for instant response
+                leftPanel.style.transition = 'none'; 
+            }, {passive: false});
+
+            // Touch Move: Direct Math
+            document.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                const deltaY = startY - e.touches[0].clientY; // Drag up = positive
+                let newHeight = startHeight + deltaY;
+
+                // Simple Constraints
+                const minH = 44; // Handle height
+                const maxH = window.innerHeight * 0.9;
+                
+                if (newHeight < minH) newHeight = minH;
+                if (newHeight > maxH) newHeight = maxH;
+
+                leftPanel.style.height = `${newHeight}px`;
+                e.preventDefault(); 
+            }, {passive: false});
+
+            // Touch End: Stay Put (No Snap)
+            document.addEventListener('touchend', () => {
+                if (!isDragging) return;
+                isDragging = false;
+                // Optional: add slight transition back for programmatic changes later
+                // But for "free drag", we can leave it or set a fast one
+                leftPanel.style.transition = 'height 0.1s linear';
+            });
+        }
+
+        const rz = document.getElementById('resizer');
+        let ir = false;
+        rz.addEventListener('mousedown', () => { ir = true; document.body.style.cursor='col-resize'; });
+        document.addEventListener('mousemove', (e) => { if (ir && window.innerWidth > 768) { let w = e.clientX; if(w<200)w=200; if(w>700)w=700; leftPanel.style.width=w+'px'; }});
+        document.addEventListener('mouseup', () => { ir=false; document.body.style.cursor='default'; });
+    </script>
+</body>
+</html>
